@@ -2,7 +2,7 @@
   TÔ FUDIDO — controle financeiro
   Diário (compras rápidas + crédito por cartão) + Mensal (contas de casa)
   Identidade: branco + verde. Cartões com cor própria. Fatura vence dia 9.
-  Ícones SVG inline. Persistência via window.storage.
+  Ícones SVG inline. Persistência via localStorage (salva no aparelho).
 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
@@ -293,14 +293,13 @@ const dadosPadrao = { income:[], monthly:[], daily:[], card:[] };
 let state = JSON.parse(JSON.stringify(dadosPadrao));
 const hoje = new Date();
 let mesAtual = { y: hoje.getFullYear(), m: hoje.getMonth() };
-let memoriaFallback = null;
 const DIA_VENC_FATURA = 9; // fatura sempre vence dia 9
 function chaveMes(o = mesAtual){ return `${o.y}-${String(o.m+1).padStart(2,'0')}`; }
 
 async function carregar(){
   try{
-    if(window.storage){ const r = await window.storage.get(DB_KEY); if(r && r.value){ state = { ...dadosPadrao, ...JSON.parse(r.value) }; } }
-    else if(memoriaFallback){ state = JSON.parse(memoriaFallback); }
+    const raw = localStorage.getItem(DB_KEY);
+    if(raw){ state = { ...dadosPadrao, ...JSON.parse(raw) }; }
   }catch(e){ console.warn('Falha ao carregar', e); }
   migrarCartoesAntigos();
 }
@@ -316,8 +315,7 @@ function migrarCartoesAntigos(){
   }
 }
 async function salvar(){
-  const json = JSON.stringify(state); memoriaFallback = json;
-  try{ if(window.storage){ await window.storage.set(DB_KEY, json); } }catch(e){ console.error('Falha ao salvar', e); }
+  try{ localStorage.setItem(DB_KEY, JSON.stringify(state)); }catch(e){ console.error('Falha ao salvar', e); }
 }
 
 /* ===================== UTILIDADES ===================== */
