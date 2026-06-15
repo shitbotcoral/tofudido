@@ -360,18 +360,30 @@ const faturaCartao = (cardId) => creditEntries().filter(e=>e.card===cardId).redu
 const qtdCartaoMes = (cardId) => creditEntries().filter(e=>e.card===cardId && parcelaNoMes(e,cicloFatura())>0).length;
 
 function totais(){
-  const renda  = incomeMes().reduce((s,x)=>s+x.amount,0);
+  const rendaItens = incomeMes();
+  const renda        = rendaItens.reduce((s,x)=>s+x.amount,0);
+  const rendaRecebida= rendaItens.filter(x=>x.received!==false).reduce((s,x)=>s+x.amount,0);
   const contas = monthlyMes().reduce((s,x)=>s+x.amount,0);
   const contasPagas = monthlyMes().filter(x=>x.paid).reduce((s,x)=>s+x.amount,0);
   const dThis = dailyMes();
   const aVista = dThis.filter(x=>x.method!=='credito').reduce((s,x)=>s+x.amount,0);
   const creditoMes = dThis.filter(x=>x.method==='credito').reduce((s,x)=>s+x.amount,0);
   const fatura = faturaMes();
-  return { renda, contas, contasPagas, aVista, creditoMes, fatura, saldo: renda-contas-aVista-fatura };
+  return { renda, rendaRecebida, contas, contasPagas, aVista, creditoMes, fatura, saldo: rendaRecebida-contas-aVista-fatura };
 }
 
 /* ----- contas fixas: propagação automática pro mês visto ----- */
 function propagarFixas(monthKey){
+  // Garante que contas fixas sem serie (criadas antes da feature) ganhem uma serie
+  const seriesPorDesc = {};
+  state.monthly.forEach(b=>{
+    if(b.fixa && !b.serie){
+      const chave = b.desc.trim().toLowerCase();
+      if(!seriesPorDesc[chave]) seriesPorDesc[chave] = id();
+      b.serie = seriesPorDesc[chave];
+    }
+  });
+
   const porSerie = {};
   state.monthly.forEach(b=>{ if(b.serie){ (porSerie[b.serie]=porSerie[b.serie]||[]).push(b); } });
   let mudou = false;
@@ -380,6 +392,7 @@ function propagarFixas(monthKey){
     if(state.skips.includes(serie+'|'+monthKey)) return;
     const insts = porSerie[serie];
     if(insts.some(b=>b.month===monthKey)) return;
+    // pega a instância mais recente de QUALQUER mês anterior
     const anteriores = insts.filter(b=>b.month < monthKey).sort((a,b)=>a.month.localeCompare(b.month));
     const fonte = anteriores[anteriores.length-1];
     if(!fonte || !fonte.fixa) return;
@@ -467,7 +480,7 @@ function renderInicio(){
       <div class="term-frase">${st.frase}</div>
     </div>
     <div class="stats-row">
-      <div class="stat entrada"><div class="rotulo">${ic('wallet','ic-sm')} Renda</div><div class="valor">${brl(t.renda)}</div></div>
+      <div class="stat entrada"><div class="rotulo">${ic('wallet','ic-sm')} Renda recebida</div><div class="valor">${brl(t.rendaRecebida)}</div></div>
       <div class="stat saida"><div class="rotulo">${ic('flame','ic-sm')} Saiu</div><div class="valor">${brl(t.contas+t.aVista+t.fatura)}</div></div>
     </div>
     <div class="stats-row">
@@ -586,13 +599,18 @@ function renderMensal(){
   const falta = t.contas-t.contasPagas;
   const pct = t.contas>0?Math.round((t.contasPagas/t.contas)*100):0;
 
-  let rendaHTML = renda.length ? renda.map(r=>`
-    <div class="item">
-      <div class="icone" style="background:var(--verde-claro)">${ic('wallet')}</div>
-      <div class="corpo"><div class="nome">${esc(r.desc||'Renda')}</div></div>
-      <div class="preco" style="color:var(--verde)">+${brl(r.amount)}</div>
+  let rendaHTML = renda.length ? renda.map(r=>{
+    const recebida = r.received !== false;
+    return `<div class="item" style="opacity:${recebida?'1':'.6'}">
+      <button class="checkbtn ${recebida?'on':''}" data-toggle-income="${r.id}" aria-label="Marcar recebida">${recebida?ic('check'):''}</button>
+      <div class="corpo">
+        <div class="nome" style="${recebida?'':'text-decoration:line-through'}">${esc(r.desc||'Renda')}</div>
+        <div class="sub">${recebida?'<span class="tag paga">recebida</span>':'<span class="tag venc">a receber</span>'}</div>
+      </div>
+      <div class="preco" style="color:${recebida?'var(--verde)':'var(--cinza)'}">+${brl(r.amount)}</div>
       <div class="item-botoes"><button class="mini-btn del" data-del-income="${r.id}" aria-label="Excluir">${ic('trash','ic-sm')}</button></div>
-    </div>`).join('') : `<div class="vazio" style="padding:18px 6px"><div class="face">${ic('wallet')}</div><p>Adicione seu salário, freelas, vendas…</p></div>`;
+    </div>`;
+  }).join('') : `<div class="vazio" style="padding:18px 6px"><div class="face">${ic('wallet')}</div><p>Adicione seu salário, freelas, vendas…</p></div>`;
 
   let contasHTML;
   if(contas.length){
@@ -625,7 +643,10 @@ function renderMensal(){
     <div class="bloco">
       <div class="bloco-titulo"><h2>${ic('wallet','ic-sm')} Renda do mês</h2><button class="acao" id="addRenda">${ic('plus','ic-xs')} adicionar</button></div>
       ${rendaHTML}
-      <div style="border-top:2px solid var(--cinza-claro); margin-top:10px; padding-top:12px; display:flex; justify-content:space-between; font-weight:800; font-size:15px"><span>Total</span><span style="color:var(--verde)">${brl(t.renda)}</span></div>
+      <div style="border-top:2px solid var(--cinza-claro); margin-top:10px; padding-top:12px">
+        <div style="display:flex; justify-content:space-between; font-weight:800; font-size:15px; margin-bottom:6px"><span>Recebida</span><span style="color:var(--verde)">${brl(t.rendaRecebida)}</span></div>
+        ${t.renda>t.rendaRecebida?`<div style="display:flex; justify-content:space-between; font-size:12px; font-weight:600; color:var(--cinza)"><span>A receber</span><span>${brl(t.renda-t.rendaRecebida)}</span></div>`:''}
+      </div>
     </div>
     <div class="bloco">
       <div class="bloco-titulo"><h2>${ic('calendar','ic-sm')} Contas de casa</h2><button class="acao" id="addConta">${ic('plus','ic-xs')} adicionar</button></div>
@@ -638,7 +659,7 @@ function renderMensal(){
       <div style="display:flex; justify-content:space-between; align-items:center">
         <div>
           <div style="font-size:12px; font-weight:700; color:var(--verde-escuro); display:flex; align-items:center; gap:6px">${ic('calculator','ic-sm')} Cálculo rápido</div>
-          <div style="font-size:11px; color:var(--cinza); margin-top:2px">Renda − contas − à vista − cartões</div>
+          <div style="font-size:11px; color:var(--cinza); margin-top:2px">Renda recebida − contas − à vista − cartões</div>
         </div>
         <div style="font-size:22px; font-weight:800; color:${t.saldo<0?'var(--alerta)':'var(--verde-escuro)'}; font-variant-numeric:tabular-nums">${brl(t.saldo)}</div>
       </div>
@@ -806,6 +827,7 @@ document.getElementById('main').addEventListener('click', e=>{
   const ed=e.target.closest('[data-edit-monthly]'); if(ed){ const c=state.monthly.find(x=>x.id===ed.dataset.editMonthly); if(c) abrirSheetConta(c); return; }
   const dm=e.target.closest('[data-del-monthly]'); if(dm){ const c=state.monthly.find(x=>x.id===dm.dataset.delMonthly); if(c) excluirConta(c); return; }
   const dd=e.target.closest('[data-del-daily]'); if(dd){ state.daily=state.daily.filter(x=>x.id!==dd.dataset.delDaily); salvar(); renderAtual(); toast('Gasto removido'); return; }
+  const ti=e.target.closest('[data-toggle-income]'); if(ti){ const r=state.income.find(x=>x.id===ti.dataset.toggleIncome); if(r){ r.received=r.received===false?true:false; salvar(); renderAtual(); toast(r.received?'Renda marcada como recebida':'Marcada como a receber'); } return; }
   const tp=e.target.closest('[data-toggle-paid]'); if(tp){ const c=state.monthly.find(x=>x.id===tp.dataset.togglePaid); if(c){ c.paid=!c.paid; salvar(); renderAtual(); toast(c.paid?'Conta paga':'Marcada como pendente'); } return; }
 });
 function confirmar(msg, ok){
