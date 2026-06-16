@@ -129,6 +129,22 @@
   .resumo-mensal{ display:flex; justify-content:space-between; font-size:12px; margin-top:9px; }
   .resumo-mensal b{ font-variant-numeric:tabular-nums; }
 
+  .resumo-claro{ border:1.5px solid var(--cinza-claro); }
+  .rc-linha{ display:flex; align-items:center; gap:9px; padding:7px 0; }
+  .rc-dot{ width:10px; height:10px; border-radius:50%; flex:none; }
+  .rc-dot.rc-pago{ background:var(--verde); }
+  .rc-dot.rc-falta{ background:var(--alerta); }
+  .rc-label{ flex:1; font-size:13px; font-weight:600; color:var(--carvao); }
+  .rc-val{ font-size:16px; font-weight:800; font-variant-numeric:tabular-nums; }
+  .rc-val.rc-verde{ color:var(--verde); }
+  .rc-val.rc-vermelho{ color:var(--alerta); }
+  .rc-linha.rc-soma{ border-top:2px solid var(--cinza-claro); margin-top:8px; padding-top:11px; }
+  .rc-linha.rc-soma .rc-label{ font-size:13px; font-weight:800; color:var(--verde-escuro); }
+  .rc-linha.rc-soma .rc-val{ font-size:18px; color:var(--verde-escuro); }
+  .rc-detalhe{ display:flex; flex-direction:column; gap:5px; margin-top:10px; padding-top:10px; border-top:1px dashed var(--cinza-claro); }
+  .rc-detalhe span{ font-size:11.5px; color:var(--cinza); font-weight:500; display:flex; align-items:center; gap:5px; }
+  .rc-detalhe span b{ color:var(--carvao); font-weight:700; }
+
   .cartao-linha{ display:flex; align-items:center; gap:11px; padding:11px 0; border-top:1px solid var(--cinza-claro); }
   .cartao-linha:first-child{ border-top:none; }
   .cartao-badge{ width:40px; height:40px; border-radius:11px; display:grid; place-items:center; color:#fff; flex:none; box-shadow:var(--sombra-sm); }
@@ -363,13 +379,24 @@ function totais(){
   const rendaItens = incomeMes();
   const renda        = rendaItens.reduce((s,x)=>s+x.amount,0);
   const rendaRecebida= rendaItens.filter(x=>x.received!==false).reduce((s,x)=>s+x.amount,0);
-  const contas = monthlyMes().reduce((s,x)=>s+x.amount,0);
-  const contasPagas = monthlyMes().filter(x=>x.paid).reduce((s,x)=>s+x.amount,0);
+  const contasAtivas = monthlyMes().filter(x=>!x.ignored);
+  const contasIgnoradas = monthlyMes().filter(x=>x.ignored);
+  const contas = contasAtivas.reduce((s,x)=>s+x.amount,0);
+  const contasPagas = contasAtivas.filter(x=>x.paid).reduce((s,x)=>s+x.amount,0);
+  const contasFalta = contas-contasPagas;
+  const totalIgnorado = contasIgnoradas.reduce((s,x)=>s+x.amount,0);
   const dThis = dailyMes();
   const aVista = dThis.filter(x=>x.method!=='credito').reduce((s,x)=>s+x.amount,0);
   const creditoMes = dThis.filter(x=>x.method==='credito').reduce((s,x)=>s+x.amount,0);
   const fatura = faturaMes();
-  return { renda, rendaRecebida, contas, contasPagas, aVista, creditoMes, fatura, saldo: rendaRecebida-contas-aVista-fatura };
+  // à vista já é gasto efetivado (saiu do bolso na hora); fatura ainda não paga até vencer
+  // contas "não vou pagar" não entram nem em pago nem em falta
+  const totalDevido = contasFalta + fatura;          // o que AINDA falta pagar
+  const totalJaPago = contasPagas + aVista;           // o que já saiu / já foi pago
+  const totalGeral  = totalDevido + totalJaPago;      // soma = tudo que existe no mês (sem as ignoradas)
+  return { renda, rendaRecebida, contas, contasPagas, contasFalta, totalIgnorado, aVista, creditoMes, fatura,
+    totalDevido, totalJaPago, totalGeral,
+    saldo: rendaRecebida-contas-aVista-fatura };
 }
 
 /* ----- contas fixas: propagação automática pro mês visto ----- */
@@ -478,6 +505,18 @@ function renderInicio(){
       <div class="term-label">Saldo do mês</div>
       <div class="term-saldo">${brl(t.saldo)}</div>
       <div class="term-frase">${st.frase}</div>
+    </div>
+    <div class="bloco resumo-claro">
+      <div class="bloco-titulo"><h2>${ic('calculator','ic-sm')} O que falta e o que já foi</h2></div>
+      <div class="rc-linha"><span class="rc-dot rc-pago"></span><span class="rc-label">Já pago / já gasto</span><span class="rc-val rc-verde">${brl(t.totalJaPago)}</span></div>
+      <div class="rc-linha"><span class="rc-dot rc-falta"></span><span class="rc-label">Ainda falta pagar</span><span class="rc-val rc-vermelho">${brl(t.totalDevido)}</span></div>
+      <div class="progresso" style="margin-top:10px"><span style="width:${t.totalGeral>0?Math.round((t.totalJaPago/t.totalGeral)*100):0}%"></span></div>
+      <div class="rc-linha rc-soma"><span class="rc-label">Soma do mês</span><span class="rc-val">${brl(t.totalGeral)}</span></div>
+      <div class="rc-detalhe">
+        <span>${ic('calendar','ic-xs')} Contas: <b>${brl(t.contasFalta)}</b> falta de ${brl(t.contas)}</span>
+        <span>${ic('credit-card','ic-xs')} Cartão: <b>${brl(t.fatura)}</b> na fatura</span>
+        ${t.totalIgnorado>0?`<span>${ic('alert','ic-xs')} Não vou pagar: <b>${brl(t.totalIgnorado)}</b> (fora da soma)</span>`:''}
+      </div>
     </div>
     <div class="stats-row">
       <div class="stat entrada"><div class="rotulo">${ic('wallet','ic-sm')} Renda recebida</div><div class="valor">${brl(t.rendaRecebida)}</div></div>
@@ -624,10 +663,11 @@ function renderMensal(){
         else if(d===0){ venc='vence hoje'; vcls='hoje'; }
         else if(d<=5){ venc=`vence em ${d}d`; vcls='venc'; }
       }
-      return `<div class="item" style="opacity:${c.paid?'.55':'1'}">
-        <button class="checkbtn ${c.paid?'on':''}" data-toggle-paid="${c.id}" aria-label="Marcar paga">${c.paid?ic('check'):''}</button>
-        <div class="corpo"><div class="nome" style="${c.paid?'text-decoration:line-through':''}">${ic(cat.icon,'inline-cat')} ${esc(c.desc)}</div>
-          <div class="sub"><span class="tag ${c.priority}">${labelPrio(c.priority)}</span>${c.paid?'<span class="tag paga">paga</span>':`<span class="tag ${vcls}">${venc}</span>`}${c.fixa?`<span class="tag fixa">${ic('repeat','ic-xs')} fixa</span>`:''}</div></div>
+      const ignorada = !!c.ignored;
+      return `<div class="item" style="opacity:${c.paid?'.55':ignorada?'.45':'1'}">
+        <button class="checkbtn ${c.paid?'on':''} ${ignorada?'ignorada':''}" data-cycle-status="${c.id}" aria-label="Status do pagamento">${c.paid?ic('check'):ignorada?ic('alert','ic-sm'):''}</button>
+        <div class="corpo"><div class="nome" style="${(c.paid||ignorada)?'text-decoration:line-through':''}">${ic(cat.icon,'inline-cat')} ${esc(c.desc)}</div>
+          <div class="sub"><span class="tag ${c.priority}">${labelPrio(c.priority)}</span>${ignorada?'<span class="tag naopaga">não vou pagar</span>':c.paid?'<span class="tag paga">paga</span>':`<span class="tag ${vcls}">${venc}</span>`}${c.fixa?`<span class="tag fixa">${ic('repeat','ic-xs')} fixa</span>`:''}</div></div>
         <div class="preco neg">${brl(c.amount)}</div>
         <div class="item-botoes">
           <button class="mini-btn edit" data-edit-monthly="${c.id}" aria-label="Editar">${ic('pencil','ic-sm')}</button>
@@ -655,10 +695,22 @@ function renderMensal(){
         <div class="progresso"><span style="width:${pct}%"></span></div>
         <div class="resumo-mensal"><span>Pago: <b style="color:var(--verde)">${brl(t.contasPagas)}</b></span><span>Falta: <b style="color:var(--alerta)">${brl(falta)}</b></span></div></div>` : ''}
     </div>
+    <div class="bloco resumo-claro">
+      <div class="bloco-titulo"><h2>${ic('calculator','ic-sm')} O que falta e o que já foi</h2></div>
+      <div class="rc-linha"><span class="rc-dot rc-pago"></span><span class="rc-label">Já pago / já gasto</span><span class="rc-val rc-verde">${brl(t.totalJaPago)}</span></div>
+      <div class="rc-linha"><span class="rc-dot rc-falta"></span><span class="rc-label">Ainda falta pagar</span><span class="rc-val rc-vermelho">${brl(t.totalDevido)}</span></div>
+      <div class="progresso" style="margin-top:10px"><span style="width:${t.totalGeral>0?Math.round((t.totalJaPago/t.totalGeral)*100):0}%"></span></div>
+      <div class="rc-linha rc-soma"><span class="rc-label">Soma do mês</span><span class="rc-val">${brl(t.totalGeral)}</span></div>
+      <div class="rc-detalhe">
+        <span>${ic('calendar','ic-xs')} Contas: <b>${brl(t.contasFalta)}</b> falta de ${brl(t.contas)}</span>
+        <span>${ic('credit-card','ic-xs')} Cartão: <b>${brl(t.fatura)}</b> na fatura</span>
+        <span>${ic('zap','ic-xs')} À vista (já gasto): <b>${brl(t.aVista)}</b></span>
+      </div>
+    </div>
     <div class="bloco" style="background:linear-gradient(135deg,var(--mint),var(--verde-claro)); border:none">
       <div style="display:flex; justify-content:space-between; align-items:center">
         <div>
-          <div style="font-size:12px; font-weight:700; color:var(--verde-escuro); display:flex; align-items:center; gap:6px">${ic('calculator','ic-sm')} Cálculo rápido</div>
+          <div style="font-size:12px; font-weight:700; color:var(--verde-escuro); display:flex; align-items:center; gap:6px">${ic('wallet','ic-sm')} Saldo (o que sobra de verdade)</div>
           <div style="font-size:11px; color:var(--cinza); margin-top:2px">Renda recebida − contas − à vista − cartões</div>
         </div>
         <div style="font-size:22px; font-weight:800; color:${t.saldo<0?'var(--alerta)':'var(--verde-escuro)'}; font-variant-numeric:tabular-nums">${brl(t.saldo)}</div>
@@ -828,7 +880,12 @@ document.getElementById('main').addEventListener('click', e=>{
   const dm=e.target.closest('[data-del-monthly]'); if(dm){ const c=state.monthly.find(x=>x.id===dm.dataset.delMonthly); if(c) excluirConta(c); return; }
   const dd=e.target.closest('[data-del-daily]'); if(dd){ state.daily=state.daily.filter(x=>x.id!==dd.dataset.delDaily); salvar(); renderAtual(); toast('Gasto removido'); return; }
   const ti=e.target.closest('[data-toggle-income]'); if(ti){ const r=state.income.find(x=>x.id===ti.dataset.toggleIncome); if(r){ r.received=r.received===false?true:false; salvar(); renderAtual(); toast(r.received?'Renda marcada como recebida':'Marcada como a receber'); } return; }
-  const tp=e.target.closest('[data-toggle-paid]'); if(tp){ const c=state.monthly.find(x=>x.id===tp.dataset.togglePaid); if(c){ c.paid=!c.paid; salvar(); renderAtual(); toast(c.paid?'Conta paga':'Marcada como pendente'); } return; }
+  const cs=e.target.closest('[data-cycle-status]'); if(cs){ const c=state.monthly.find(x=>x.id===cs.dataset.cycleStatus); if(c){
+    if(!c.paid && !c.ignored){ c.paid=true; c.ignored=false; toast('Conta paga'); }
+    else if(c.paid){ c.paid=false; c.ignored=true; toast('Marcada como "não vou pagar"'); }
+    else { c.paid=false; c.ignored=false; toast('Marcada como pendente'); }
+    salvar(); renderAtual();
+  } return; }
 });
 function confirmar(msg, ok){
   abrirSheet(`<h2 style="margin-bottom:8px">${msg}</h2><p class="sub">Confirme pra continuar.</p>
